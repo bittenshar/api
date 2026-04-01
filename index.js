@@ -1,5 +1,7 @@
 import express from 'express';
 import compression from 'compression';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { connectMongoDB } from './utils/database.js';
@@ -8,9 +10,13 @@ import { requestLogger } from './middlewares/requestLogger.js';
 import routes from './routes/index.js';
 
 const app = express();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Enable response compression (gzip) - CRITICAL for performance
 app.use(compression());
+
+// Serve static files (HTML, JS, CSS)
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
