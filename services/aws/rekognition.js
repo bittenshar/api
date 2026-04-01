@@ -84,7 +84,7 @@ class RekognitionService {
       const faceDetails = await this.detectFaces(imageBuffer);
       if (!faceDetails) {
         logger.warn('Skipping face search - no valid face detected');
-        return { FaceMatches: [] };
+        return { FaceMatches: [], FaceDetails: [] };
       }
 
       const command = new SearchFacesByImageCommand({
@@ -104,7 +104,11 @@ class RekognitionService {
         matchesFound: response.FaceMatches?.length || 0,
       });
 
-      return response;
+      // Return both matches and face details (for cropping)
+      return {
+        ...response,
+        FaceDetails: faceDetails, // Include bounding box coords
+      };
     } catch (error) {
       logger.endTimer(label);
       logger.error('Rekognition search failed', {
@@ -113,6 +117,13 @@ class RekognitionService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Get face details only (useful for cropping without searching)
+   */
+  async getFaceDetails(imageBuffer) {
+    return this.detectFaces(imageBuffer);
   }
 
   extractUserIdAndSimilarity(faceMatches) {

@@ -2,6 +2,7 @@ import { validateRequest, validateImage } from '../utils/validation.js';
 import { rekognitionService } from '../services/aws/rekognition.js';
 import { faceTableService } from '../services/faceTable.js';
 import { bookingService } from '../services/booking.js';
+import { faceCropper } from '../utils/faceCropper.js';
 import { AppError, asyncHandler } from '../middlewares/errorHandler.js';
 import { logger } from '../utils/logger.js';
 
@@ -247,6 +248,164 @@ export const registerFace = asyncHandler(async (req, res) => {
       fullName: user.fullName,
       faceId: indexResponse.FaceIds?.[0] || null,
       message: 'Face registered successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.endTimer(timer);
+    throw error;
+  }
+});
+
+/**
+ * Crop a detected face from an uploaded image
+ * Returns the cropped face as base64 or as a file
+ * Usage: POST /api/face-crop with image file
+ */
+export const cropFace = asyncHandler(async (req, res) => {
+  const timer = 'crop_face';
+  logger.startTimer(timer);
+
+  try {
+    const image = req.file;
+    const { returnFormat = 'base64' } = req.query; // 'base64' or 'buffer'
+
+    // Validate request
+    const validation = validateRequest(image, null);
+    if (!validation.valid) {
+      throw new AppError(validation.errors.join(', '), 400);
+    }
+
+    const imageValidation = validateImage(image.buffer);
+    if (!imageValidation.valid) {
+      throw new AppError(imageValidation.error, 400);
+    }
+
+    // Get face details from Rekognition
+    const faceDetails = await rekognitionService.getFaceDetails(image.buffer);
+    if (!faceDetails || faceDetails.length === 0) {
+      throw new AppError('No face detected in image', 400);
+    }
+
+    // Crop the primary face
+    const bestFace = faceDetails[0];
+    const croppedFaceBuffer = await faceCropper.cropFaceFromImage(
+      image.buffer,
+      bestFace
+    );
+
+    // Generate thumbnail for preview
+    const thumbnailBuffer = await faceCropper.generateThumbnail(
+      croppedFaceBuffer,
+      256
+    );
+
+    const duration = logger.endTimer(timer);
+
+    // Return in requested format
+    if (returnFormat === 'buffer') {
+      // Return as binary image file
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', 'attachment; filename="cropped-face.jpg"');
+      return res.send(croppedFaceBuffer);
+    }
+
+    // Default: return as base64 (JSON)
+    res.status(200).json({
+      success: true,
+      croppedFace: {
+        data: faceCropper.bufferToBase64(croppedFaceBuffer),
+        mimeType: 'image/jpeg',
+        size: croppedFaceBuffer.length,
+        dataUrl: faceCropper.bufferToDataUrl(croppedFaceBuffer),
+      },
+      thumbnail: {
+        data: faceCropper.bufferToBase64(thumbnailBuffer),
+        mimeType: 'image/jpeg',
+        size: thumbnailBuffer.length,
+        dataUrl: faceCropper.bufferToDataUrl(thumbnailBuffer),
+      },
+      faceDetails: {
+        confidence: bestFace.Confidence,
+        boundingBox: bestFace.BoundingBox,
+        emotionDetails: {
+          smile: bestFace.Smile?.Value || null,
+          eyesOpen: bestFace.EyesOpen?.Value || null,
+          mouthOpen: bestFace.MouthOpen?.Value || null,
+        },
+      },
+      processingTime: `${duration}ms`,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.endTimer(timer);
+    throw error;
+  }
+});
+
+/**
+ * Crop multiple faces from an image
+ * Returns array of cropped faces
+ * Usage: POST /api/face-crop-multiple with image file
+ */
+export const cropMultipleFaces = asyncHandler(async (req, res) => {
+  const timer = 'crop_multiple_faces';
+  logger.startTimer(timer);
+
+  try {
+    const image = req.file;
+
+    // Validate request
+    const validation = validateRequest(image, null);
+    if (!validation.valid) {
+      throw new AppError(validation.errors.join(', '), 400);
+    }
+
+    const imageValidation = validateImage(image.buffer);
+    if (!imageValidation.valid) {
+      throw new AppError(imageValidation.error, 400);
+    }
+
+    // Get face details from Rekognition
+    const faceDetails = await rekognitionService.getFaceDetails(image.buffer);
+    if (!faceDetails || faceDetails.length === 0) {
+      throw new AppError('No faces detected in image', 400);
+    }
+
+    // Crop all detected faces
+    const croppedFaces = await faceCropper.cropMultipleFaces(
+      image.buffer,
+      faceDetails
+    );
+
+    const croppedFacesWithData = await Promise.all(
+      croppedFaces.map(async (face) => ({
+        index: face.index,
+        croppedFace: {
+          data: faceCropper.bufferToBase64(face.buffer),
+          mimeType: 'image/jpeg',
+          size: face.size,
+          dataUrl: faceCropper.bufferToDataUrl(face.buffer),
+        },
+        thumbnail: {
+          data: faceCropper.bufferToBase64(
+            await faceCropper.generateThumbnail(face.buffer, 256)
+          ),
+          mimeType: 'image/jpeg',
+        },
+        faceDetails: {
+          confidence: face.confidence,
+          boundingBox: face.boundingBox,
+        },
+      }))
+    );
+
+    const duration = logger.endTimer(timer);
+
+    res.status(200).json({
+      success: true,
+      facesDetected: croppedFacesWithData.length,
+      faces: croppedFacesWithData,
+      processingTime: `${duration}ms`,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
