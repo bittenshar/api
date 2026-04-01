@@ -1,15 +1,76 @@
-import { RekognitionClient, SearchFacesByImageCommand } from '@aws-sdk/client-rekognition';
+import { 
+  RekognitionClient, 
+  SearchFacesByImageCommand,
+  DetectFacesCommand
+} from '@aws-sdk/client-rekognition';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
 
+// Minimum confidence threshold for face detection (0-100)
+const MIN_FACE_CONFIDENCE = 80;
+
 class RekognitionService {
   constructor() {
-    this.isMockMode = process.env.MOCK_AWS === 'true' || process.env.NODE_ENV === 'development';
-    
-    if (!this.isMockMode) {
-      this.client = new RekognitionClient({
-        region: config.aws.region,
+    this.client = new RekognitionClient({
+      region: config.aws.region,
+    });
+  }
+
+  /**
+   * Detect faces in image and validate they meet quality threshold
+   * @throws {Error} if no faces detected or confidence too low
+   */
+  async detectFaces(imageBuffer) {
+    const label = 'rekognition_detect';
+    logger.startTimer(label);
+
+    try {
+      const command = new DetectFacesCommand({
+        Image: {
+          Bytes: imageBuffer,
+        },
+        Attributes: ['ALL'],
       });
+
+      const response = await this.client.send(command);
+      const duration = logger.endTimer(label);
+
+      logger.debug('Face detection completed', {
+        duration: `${duration}ms`,
+        facesDetected: response.FaceDetails?.length || 0,
+      });
+
+      // Validate at least one face was detected
+      if (!response.FaceDetails || response.FaceDetails.length === 0) {
+        logger.warn('No faces detected in image');
+        return null;
+      }
+
+      // Check if highest confidence face meets threshold
+      const bestFace = response.FaceDetails[0];
+      const confidence = bestFace.Confidence || 0;
+
+      if (confidence < MIN_FACE_CONFIDENCE) {
+        logger.warn('Face confidence too low', {
+          confidence,
+          threshold: MIN_FACE_CONFIDENCE,
+        });
+        return null;
+      }
+
+      logger.debug('Face validation passed', {
+        confidence,
+        faceCount: response.FaceDetails.length,
+      });
+
+      return response.FaceDetails;
+    } catch (error) {
+      logger.endTimer(label);
+      logger.error('Face detection failed', {
+        error: error.message,
+        code: error.$metadata?.httpStatusCode,
+      });
+      throw error;
     }
   }
 
@@ -18,25 +79,11 @@ class RekognitionService {
     logger.startTimer(label);
 
     try {
-      if (this.isMockMode) {
-        // Mock mode: return dummy matching face data with real user from face-table
-        const duration = logger.endTimer(label);
-        logger.debug('Rekognition search completed (MOCK MODE)', {
-          duration: `${duration}ms`,
-          matchesFound: 1,
-        });
-
-        return {
-          FaceMatches: [
-            {
-              Similarity: 98.5,
-              Face: {
-                // Return actual user ID from face-table
-                ExternalImageId: '69a5571471e8d2ba3fcecd17',
-              },
-            },
-          ],
-        };
+      // First, validate that image contains a detectable face
+      const faceDetails = await this.detectFaces(imageBuffer);
+      if (!faceDetails) {
+        logger.warn('Skipping face search - no valid face detected');
+        return { FaceMatches: [] };
       }
 
       const command = new SearchFacesByImageCommand({
