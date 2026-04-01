@@ -1,0 +1,37 @@
+{
+  "name": "face-verification-microservice",
+  "version": "1.0.0",
+  "description": "High-performance Node.js backend for real-time face verification using AWS Rekognition",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "jest",
+    "build": "echo 'No build step required'"
+  },
+  "keywords": [
+    "face-verification",
+    "aws-rekognition",
+    "express",
+    "microservice"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1021.0",
+    "@aws-sdk/client-rekognition": "^3.520.0",
+    "@aws-sdk/client-s3": "^3.520.0",
+    "@aws-sdk/lib-dynamodb": "^3.1021.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "mongoose": "^8.0.0",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

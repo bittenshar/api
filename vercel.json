@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "api/index.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "MONGO_URI": "@mongo_uri",
+    "AWS_REGION": "@aws_region",
+    "AWS_ACCESS_KEY_ID": "@aws_access_key_id",
+    "AWS_SECRET_ACCESS_KEY": "@aws_secret_access_key",
+    "AWS_REKOGNITION_COLLECTION_ID": "@aws_rekognition_collection_id",
+    "PORT": "3000",
+    "LOG_LEVEL": "info",
+    "FACE_MATCH_THRESHOLD": "90",
+    "MAX_FACES": "1"
+  }
+}
