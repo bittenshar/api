@@ -55,3 +55,4 @@ docker-compose.override.yml
 # Misc
 .env.production.local
 .firebase
+.vercel

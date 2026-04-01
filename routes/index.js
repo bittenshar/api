@@ -1,6 +1,6 @@
 import express from 'express';
 import multer from 'multer';
-import { verifyFace, healthCheck } from '../controllers/faceVerification.js';
+import { verifyFace, verifyFaceDirect, registerFace, healthCheck } from '../controllers/faceVerification.js';
 
 const router = express.Router();
 
@@ -20,8 +20,14 @@ const upload = multer({
   },
 });
 
-// Face verification endpoint
+// Face verification endpoint (uses Rekognition with MongoDB fallback)
 router.post('/api/face-verify', upload.single('image'), verifyFace);
+
+// Direct verification endpoint (bypasses Rekognition, queries MongoDB directly)
+router.post('/api/face-verify-direct', verifyFaceDirect);
+
+// Face registration endpoint - index face to Rekognition collection
+router.post('/api/face-register', upload.single('image'), registerFace);
 
 // Health check endpoint
 router.get('/health', healthCheck);

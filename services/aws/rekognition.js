@@ -1,7 +1,8 @@
 import { 
   RekognitionClient, 
   SearchFacesByImageCommand,
-  DetectFacesCommand
+  DetectFacesCommand,
+  IndexFacesCommand
 } from '@aws-sdk/client-rekognition';
 import { config } from '../../config/index.js';
 import { logger } from '../../utils/logger.js';
@@ -124,6 +125,54 @@ class RekognitionService {
     const similarity = Math.round((match.Similarity || 0) * 100) / 100;
 
     return { userId, similarity };
+  }
+
+  /**
+   * Index (register) a face to Rekognition collection
+   * @param {Buffer} imageBuffer - Image containing the face
+   * @param {string} userId - User ID to associate with face (ExternalImageId)
+   * @returns {Promise<Object>} IndexFaces response
+   */
+  async indexFace(imageBuffer, userId) {
+    const label = 'rekognition_index';
+    logger.startTimer(label);
+
+    try {
+      // First validate face exists in image
+      const faceDetails = await this.detectFaces(imageBuffer);
+      if (!faceDetails) {
+        logger.warn('Cannot index - no valid face detected');
+        throw new Error('No face detected in image');
+      }
+
+      const command = new IndexFacesCommand({
+        CollectionId: config.aws.rekognition.collectionId,
+        Image: {
+          Bytes: imageBuffer,
+        },
+        ExternalImageId: userId, // Link face to user ID
+        DetectionAttributes: ['ALL'],
+      });
+
+      const response = await this.client.send(command);
+      const duration = logger.endTimer(label);
+
+      logger.debug('Face indexed successfully', {
+        duration: `${duration}ms`,
+        userId,
+        faceId: response.FaceIds?.[0] || null,
+      });
+
+      return response;
+    } catch (error) {
+      logger.endTimer(label);
+      logger.error('Face indexing failed', {
+        error: error.message,
+        code: error.$metadata?.httpStatusCode,
+        userId,
+      });
+      throw error;
+    }
   }
 }
 

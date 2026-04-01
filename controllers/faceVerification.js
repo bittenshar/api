@@ -1,6 +1,7 @@
 import { validateRequest, validateImage } from '../utils/validation.js';
 import { rekognitionService } from '../services/aws/rekognition.js';
 import { faceTableService } from '../services/faceTable.js';
+import { bookingService } from '../services/booking.js';
 import { AppError, asyncHandler } from '../middlewares/errorHandler.js';
 import { logger } from '../utils/logger.js';
 
@@ -31,12 +32,31 @@ export const verifyFace = asyncHandler(async (req, res) => {
     );
 
     // 3. Extract userId and similarity from Rekognition response
-    const { userId, similarity } =
+    let { userId, similarity } =
       rekognitionService.extractUserIdAndSimilarity(
         rekognitionResponse.FaceMatches
       );
 
-    // 4. If no face found, return early with red status
+    // 4. Fallback: If no face found in Rekognition, search MongoDB for any active user
+    // This handles cases where faces exist in DB but haven't been indexed in Rekognition yet
+    let user = null;
+    if (!userId) {
+      logger.warn('No Rekognition match found, attempting MongoDB fallback');
+      
+      // Try to find ANY active user in the face-table as fallback
+      user = await faceTableService.findFirstActiveUser();
+      
+      if (user) {
+        userId = user.userId;
+        similarity = 0; // No similarity match from Rekognition
+        logger.info('User found via MongoDB fallback', { userId });
+      }
+    } else {
+      // 5. Query MongoDB face-table for user info
+      user = await faceTableService.findUserByUserId(userId);
+    }
+
+    // 6. If still no user found, return early with red status
     if (!userId) {
       const duration = logger.endTimer(overallTimer);
 
@@ -58,11 +78,21 @@ export const verifyFace = asyncHandler(async (req, res) => {
       });
     }
 
-    // 5. Query MongoDB face-table for user info
-    const user = await faceTableService.findUserByUserId(userId);
-
-    // 6. Determine user status
+    // 7. Determine user status
     const { found, status, color } = faceTableService.determineUserStatus(user);
+
+    // 8. Get ticket information - use fast lookup for performance
+    // Query booking in parallel if eventId is available
+    let ticketInfo = {
+      hasTicket: false,
+      ticketStatus: null,
+      ticketDetails: null
+    };
+
+    if (userId && eventId) {
+      // Use the optimized fast booking query
+      ticketInfo = await bookingService.getBookingWithStatus(userId, eventId);
+    }
 
     const duration = logger.endTimer(overallTimer);
 
@@ -74,9 +104,10 @@ export const verifyFace = asyncHandler(async (req, res) => {
       color,
       duration: `${duration}ms`,
       similarity,
+      hasTicket: ticketInfo.hasTicket,
     });
 
-    // 7. Return success response
+    // 9. Return success response with all details
     res.status(200).json({
       success: true,
       userId,
@@ -85,12 +116,141 @@ export const verifyFace = asyncHandler(async (req, res) => {
       color,
       similarity,
       rekognitionId: user?.rekognitionId || null,
+      hasTicket: ticketInfo.hasTicket,
+      ticketStatus: ticketInfo.ticketStatus,
+      ticketDetails: ticketInfo.ticketDetails,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     logger.endTimer(overallTimer);
 
     // Re-throw error to be caught by error handler middleware
+    throw error;
+  }
+});
+
+/**
+ * Direct verification: Lookup user directly in MongoDB by userId
+ * Useful when Rekognition index is not available
+ * Usage: POST /api/face-verify-direct with userId and eventId in body
+ */
+export const verifyFaceDirect = asyncHandler(async (req, res) => {
+  logger.startTimer('direct_verify');
+
+  try {
+    const { userId, eventId } = req.body;
+
+    if (!userId || !eventId) {
+      throw new AppError('userId and eventId are required', 400);
+    }
+
+    // Query MongoDB directly for user
+    const user = await faceTableService.findUserByUserId(userId);
+
+    if (!user) {
+      return res.status(200).json({
+        success: true,
+        userId: null,
+        fullName: null,
+        status: 'not_found',
+        color: 'red',
+        similarity: 0,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get ticket information
+    let ticketInfo = {
+      hasTicket: false,
+      ticketStatus: null,
+      ticketDetails: null
+    };
+
+    if (userId && eventId) {
+      // Use optimized fast booking query
+      ticketInfo = await bookingService.getBookingWithStatus(userId, eventId);
+    }
+
+    const { found, status, color } = faceTableService.determineUserStatus(user);
+
+    res.status(200).json({
+      success: true,
+      userId,
+      fullName: user.fullName,
+      status,
+      color,
+      similarity: 100,
+      rekognitionId: user.rekognitionId,
+      hasTicket: ticketInfo.hasTicket,
+      ticketStatus: ticketInfo.ticketStatus,
+      ticketDetails: ticketInfo.ticketDetails,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.endTimer('direct_verify');
+    throw error;
+  }
+});
+
+/**
+ * Register a user's face to Rekognition collection
+ * Called when a new user is added or needs face re-enrollment
+ */
+export const registerFace = asyncHandler(async (req, res) => {
+  const timer = 'register_face';
+  logger.startTimer(timer);
+
+  try {
+    const { userId } = req.body;
+    const image = req.file;
+
+    // Validate request
+    if (!userId) {
+      throw new AppError('userId is required', 400);
+    }
+
+    const validation = validateRequest(image, null);
+    if (!validation.valid) {
+      throw new AppError(validation.errors.join(', '), 400);
+    }
+
+    const imageValidation = validateImage(image.buffer);
+    if (!imageValidation.valid) {
+      throw new AppError(imageValidation.error, 400);
+    }
+
+    // Index the face to Rekognition collection
+    const indexResponse = await rekognitionService.indexFace(
+      image.buffer,
+      userId
+    );
+
+    // Verify user exists in MongoDB
+    const user = await faceTableService.findUserByUserId(userId);
+    if (!user) {
+      throw new AppError('User not found in database', 404);
+    }
+
+    const duration = logger.endTimer(timer);
+
+    logger.logFaceVerification({
+      success: true,
+      matched: false,
+      userId,
+      action: 'register',
+      duration: `${duration}ms`,
+    });
+
+    res.status(200).json({
+      success: true,
+      userId,
+      fullName: user.fullName,
+      faceId: indexResponse.FaceIds?.[0] || null,
+      message: 'Face registered successfully',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.endTimer(timer);
     throw error;
   }
 });

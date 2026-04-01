@@ -46,8 +46,16 @@ const bookingSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compound index for efficient query
-bookingSchema.index({ userId: 1, eventId: 1 });
-bookingSchema.index({ userId: 1, eventId: 1, isUsed: 1 });
+// Compound index for efficient query - MOST IMPORTANT for fast verification
+bookingSchema.index({ userId: 1, eventId: 1 }, { name: 'idx_user_event' });
+
+// Optimized compound index including isUsed for faster status checks
+bookingSchema.index({ userId: 1, eventId: 1, isUsed: 1 }, { name: 'idx_user_event_used' });
+
+// Index for checking available seats by event
+bookingSchema.index({ eventId: 1, isUsed: 1 }, { name: 'idx_event_used' });
+
+// Index for historical queries by creation time
+bookingSchema.index({ userId: 1, createdAt: -1 }, { name: 'idx_user_created' });
 
 export const Booking = mongoose.model('Booking', bookingSchema);
