@@ -4,24 +4,51 @@ import { logger } from '../utils/logger.js';
 import { Booking } from '../models/Booking.js';
 import { FaceTable } from '../models/FaceTable.js';
 
-export const connectMongoDB = async () => {
-  try {
-    logger.info('Connecting to MongoDB...');
+// Global connection cache for serverless/Vercel
+let cachedConnection = null;
 
+/**
+ * Optimized for Vercel/Serverless - reuses connection across requests
+ * Cold start: Creates connection + sync indexes (~1-2 sec)
+ * Warm start: Reuses connection (~5-10ms)
+ */
+export const connectMongoDB = async () => {
+  // Return cached connection if exists and is connected
+  if (cachedConnection && mongoose.connection.readyState === 1) {
+    return cachedConnection;
+  }
+
+  try {
+    const startTime = Date.now();
+    
+    // Optimized settings for Vercel serverless
     await mongoose.connect(config.mongodb.uri, {
-      maxPoolSize: 10, // Connection pool size for high concurrency
-      minPoolSize: 5,
-      socketTimeoutMS: 10000,
-      serverSelectionTimeoutMS: 5000,
+      // Serverless-optimized pool settings
+      maxPoolSize: 3, // Reduced from 10 - serverless functions are ephemeral
+      minPoolSize: 1, // Only maintain 1 connection during idle
+      serverSelectionTimeoutMS: 3000, // Quick timeout
+      socketTimeoutMS: 5000, // Faster timeouts
+      connectTimeoutMS: 3000,
       retryWrites: true,
+      // Important for Vercel
+      family: 4, // Force IPv4 (sometimes faster)
     });
 
-    logger.info('MongoDB connected successfully');
+    cachedConnection = mongoose.connection;
+    const duration = Date.now() - startTime;
+    
+    logger.info(`MongoDB connected (${duration}ms)`);
 
-    // Create indexes for further optimization
+    // Sync indexes only once per connection (not on every request)
+    // This is a one-time operation per cold start
+    const indexStart = Date.now();
     await Booking.syncIndexes();
     await FaceTable.syncIndexes();
-    logger.info('Database indexes synced');
+    const indexDuration = Date.now() - indexStart;
+    
+    logger.info(`Database indexes synced (${indexDuration}ms)`);
+
+    return cachedConnection;
   } catch (error) {
     logger.error('MongoDB connection failed', {
       error: error.message,
@@ -30,10 +57,23 @@ export const connectMongoDB = async () => {
   }
 };
 
+/**
+ * Get cached connection without reconnecting
+ */
+export const getMongoConnection = () => {
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+  return null;
+};
+
 export const disconnectMongoDB = async () => {
   try {
-    await mongoose.disconnect();
-    logger.info('MongoDB disconnected');
+    if (cachedConnection) {
+      await mongoose.disconnect();
+      cachedConnection = null;
+      logger.info('MongoDB disconnected');
+    }
   } catch (error) {
     logger.error('MongoDB disconnection failed', {
       error: error.message,

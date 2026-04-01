@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { connectMongoDB } from './utils/database.js';
@@ -8,9 +9,12 @@ import routes from './routes/index.js';
 
 const app = express();
 
+// Enable response compression (gzip) - CRITICAL for performance
+app.use(compression());
+
 // Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -26,7 +30,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Request logging middleware
+// Request logging middleware - only for slower requests
 app.use(requestLogger);
 
 // Routes

@@ -11,5 +11,26 @@
       "src": "/(.*)",
       "dest": "api/handler.js"
     }
+  ],
+  "functions": {
+    "api/handler.js": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "compress": true
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
   ]
 }

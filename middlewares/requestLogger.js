@@ -1,5 +1,8 @@
 import { logger } from '../utils/logger.js';
 
+// Only log requests that take longer than this threshold (ms)
+const LOG_THRESHOLD_MS = 100;
+
 export const requestLogger = (req, res, next) => {
   const startTime = Date.now();
 
@@ -11,10 +14,14 @@ export const requestLogger = (req, res, next) => {
     const duration = Date.now() - startTime;
     const statusCode = res.statusCode;
 
-    logger.logRequest(req.method, req.path, statusCode, duration, {
-      userId: req.body?.userId || 'N/A',
-      hasImage: !!req.file,
-    });
+    // Only log slow requests and errors to reduce overhead
+    if (duration > LOG_THRESHOLD_MS || statusCode >= 400) {
+      logger.logRequest(req.method, req.path, statusCode, duration, {
+        userId: req.body?.userId || 'N/A',
+        hasImage: !!req.file,
+        slow: duration > LOG_THRESHOLD_MS,
+      });
+    }
 
     return originalJson.call(this, data);
   };

@@ -45,6 +45,7 @@ class BookingService {
    * Ultra-fast booking status check - returns only essential fields
    * Optimized for face verification response time
    * Uses select() to return only needed fields
+   * Expected time: 5-10ms (on warm MongoDB connection)
    */
   async getBookingStatusFast(userId, eventId) {
     const label = 'fast_booking_status';
@@ -57,20 +58,25 @@ class BookingService {
       }
 
       // Select only essential fields - reduces document size and query time
+      // Use .exec() for explicit promise handling
       const booking = await Booking.findOne({
         userId,
         eventId: new mongoose.Types.ObjectId(eventId),
       })
         .select('status isUsed quantity seatType totalPrice createdAt') // Only needed fields
         .lean()
+        .hint({ userId: 1, eventId: 1 }) // Force index usage
         .exec();
 
       const duration = logger.endTimer(label);
 
-      logger.debug('Fast booking status query completed', {
-        duration: `${duration}ms`,
-        found: !!booking,
-      });
+      if (duration > 20) {
+        logger.debug('Slow booking query detected', {
+          duration: `${duration}ms`,
+          userId,
+          eventId,
+        });
+      }
 
       return booking;
     } catch (error) {

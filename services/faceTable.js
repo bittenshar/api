@@ -37,6 +37,7 @@ class FaceTableService {
   /**
    * Ultra-fast user lookup - select only essential fields
    * Optimized for face verification response time
+   * Expected time: 5-8ms (on warm MongoDB connection)
    */
   async findUserByUserIdFast(userId) {
     const label = 'db_find_user_fast';
@@ -46,15 +47,18 @@ class FaceTableService {
       // Select only essential fields for response
       const user = await FaceTable.findOne({ userId })
         .select('userId fullName rekognitionId status') // Only needed fields
-        .lean();
+        .lean()
+        .hint({ userId: 1 }) // Force index usage
+        .exec();
 
       const duration = logger.endTimer(label);
 
-      logger.debug('Fast user lookup completed', {
-        userId,
-        found: !!user,
-        duration: `${duration}ms`,
-      });
+      if (duration > 15) {
+        logger.debug('Slow user lookup detected', {
+          userId,
+          duration: `${duration}ms`,
+        });
+      }
 
       return user;
     } catch (error) {
