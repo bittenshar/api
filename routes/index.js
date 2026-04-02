@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
-import { verifyFace, verifyFaceDirect, registerFace, cropFace, cropMultipleFaces, healthCheck } from '../controllers/faceVerification.js';
+import { verifyFace, verifyFaceDirect, registerFace, cropFace, cropMultipleFaces, healthCheck, verifyEntryByUserId } from '../controllers/faceVerification.js';
+import { verifyEntry } from '../controllers/entryVerification.js';
 
 const router = express.Router();
 
@@ -20,6 +21,9 @@ const upload = multer({
   },
 });
 
+router.post('/api/face-user-verify',  verifyEntryByUserId);
+
+
 // Face verification endpoint (uses Rekognition with MongoDB fallback)
 router.post('/api/face-verify', upload.single('image'), verifyFace);
 
@@ -37,5 +41,9 @@ router.post('/api/face-crop-multiple', upload.single('image'), cropMultipleFaces
 
 // Health check endpoint
 router.get('/health', healthCheck);
+
+
+// Entry verification endpoint - check in users to events
+router.post('/api/booking/entry/verify', verifyEntry);
 
 export default router;

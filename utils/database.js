@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
-import { Booking } from '../models/Booking.js';
+import Booking from '../models/Booking.js';
 import { FaceTable } from '../models/FaceTable.js';
+import Event from '../models/Event.js';
+import User from '../models/User.js';
 
 // Global connection cache for serverless/Vercel
 let cachedConnection = null;
@@ -42,11 +44,19 @@ export const connectMongoDB = async () => {
     // Sync indexes only once per connection (not on every request)
     // This is a one-time operation per cold start
     const indexStart = Date.now();
-    await Booking.syncIndexes();
-    await FaceTable.syncIndexes();
-    const indexDuration = Date.now() - indexStart;
-    
-    logger.info(`Database indexes synced (${indexDuration}ms)`);
+    try {
+      await Booking.syncIndexes();
+      await FaceTable.syncIndexes();
+      await Event.syncIndexes();
+      await User.syncIndexes();
+      const indexDuration = Date.now() - indexStart;
+      logger.info(`Database indexes synced (${indexDuration}ms)`);
+    } catch (indexError) {
+      // Log index sync warnings but don't fail server startup
+      logger.warn('Database index sync warning', {
+        error: indexError.message,
+      });
+    }
 
     return cachedConnection;
   } catch (error) {

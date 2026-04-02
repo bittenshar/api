@@ -361,6 +361,18 @@
           <div class="stat-label">Saved</div>
           <div class="stat-value" id="savedSize">-</div>
         </div>
+        <div class="stat-item">
+          <div class="stat-label">Compressed Size</div>
+          <div class="stat-value" id="compressedSize">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Compressed Width</div>
+          <div class="stat-value" id="compressedWidth">-</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Compression Ratio</div>
+          <div class="stat-value" id="compressionRatio">-</div>
+        </div>
       </div>
 
       <!-- Actions -->
@@ -525,11 +537,42 @@
         return;
       }
 
-      showStatus('Sending cropped face to API...', 'loading');
+      showStatus('Compressing and sending face image...', 'loading');
 
       try {
+        // Compress image to 640px max width and 200-400 KB
+        const compressedBlob = await clientFaceCropper.compressToTargetSize(
+          currentCroppedBlob,
+          200 * 1024, // 200 KB min
+          400 * 1024, // 400 KB max
+          640 // 640px max width
+        );
+
+        // Get dimensions of compressed image
+        const compressedDimensions = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            resolve({ width: img.width, height: img.height });
+          };
+          img.src = URL.createObjectURL(compressedBlob);
+        });
+
+        // Update compression stats
+        document.getElementById('compressedSize').textContent = formatBytes(
+          compressedBlob.size
+        );
+        document.getElementById('compressedWidth').textContent =
+          compressedDimensions.width + 'px';
+        document.getElementById('compressionRatio').textContent =
+          Math.round(
+            ((currentCroppedBlob.size - compressedBlob.size) /
+              currentCroppedBlob.size) *
+              100
+          ) + '%';
+
+        // Send compressed blob to API
         const formData = new FormData();
-        formData.append('image', currentCroppedBlob, 'cropped-face.jpg');
+        formData.append('image', compressedBlob, 'cropped-face.jpg');
         formData.append('userId', '69b1b66bca13f3e8d88925d3'); // Example user ID
         formData.append('eventId', '507f1f77bcf86cd799439011'); // Example event ID
 
@@ -550,7 +593,7 @@
           2
         );
 
-        showStatus('✅ Cropped face sent successfully!', 'success');
+        showStatus('✅ Compressed face sent successfully! (' + formatBytes(compressedBlob.size) + ')', 'success');
       } catch (error) {
         showStatus(`Error: ${error.message}`, 'error');
       }

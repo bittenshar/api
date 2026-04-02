@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import { config } from '../config/index.js';
 import { errorHandler, AppError } from '../middlewares/errorHandler.js';
 import { requestLogger } from '../middlewares/requestLogger.js';
-import { Booking } from '../models/Booking.js';
+import Booking from '../models/Booking.js';
 import { FaceTable } from '../models/FaceTable.js';
 import routes from '../routes/index.js';
 

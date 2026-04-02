@@ -5,6 +5,7 @@ import { bookingService } from '../services/booking.js';
 import { faceCropper } from '../utils/faceCropper.js';
 import { AppError, asyncHandler } from '../middlewares/errorHandler.js';
 import { logger } from '../utils/logger.js';
+import Booking from '../models/Booking.js';
 
 const overallTimer = 'overall_request';
 
@@ -414,6 +415,61 @@ export const cropMultipleFaces = asyncHandler(async (req, res) => {
   }
 });
 
+/**
+ * Validate ticket by externalImageId (userId) and eventId
+ * No Rekognition needed - direct MongoDB booking lookup
+ * Usage: POST /api/face-verify/validate-by-id with externalImageId and eventId in body
+ */
+export const validateById = asyncHandler(async (req, res) => {
+  const timer = 'validate_by_id';
+  logger.startTimer(timer);
+
+  try {
+    const { userId, eventId } = req.body;
+
+    if (!userId || !eventId) {
+      throw new AppError('userId and eventId are required', 400);
+    }
+
+    const booking = await bookingService.getBookingWithStatus(
+      userId,
+      eventId
+    );
+
+    const duration = logger.endTimer(timer);
+
+    logger.logFaceVerification({
+      success: true,
+      action: 'validate_by_id',
+      userId,
+      eventId,
+      found: booking?.hasTicket,
+      duration: `${duration}ms`,
+    });
+
+    if (booking?.hasTicket) {
+      return res.status(200).json({
+        success: true,
+        color: 'green',
+        message: 'Welcome! Ticket verified.',
+        booking: booking.ticketDetails,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      color: 'red',
+      message: 'No ticket found.',
+      booking: null,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.endTimer(timer);
+    throw error;
+  }
+});
+
 export const healthCheck = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
@@ -421,3 +477,92 @@ export const healthCheck = asyncHandler(async (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+
+export const verifyEntryByUserId = async (req, res, next) => {
+  try {
+    const { userId, eventId } = req.body;
+
+    // Validate inputs
+    if (!userId || !eventId) {
+      return res.status(200).json({
+        status: 'fail',
+        message: 'userId and eventId are required',
+        action: 'DENY_ENTRY'
+      });
+    }
+
+    // Lookup booking for this user and event
+    const booking = await Booking.findOne({
+      userId: userId,
+      eventId: eventId
+    }).populate('userId').populate('eventId');
+
+    if (!booking) {
+      return res.status(200).json({
+        status: 'BLACK',
+        message: 'No valid booking found',
+        action: 'DENY_ENTRY',
+        reason: 'User has no booking for this event',
+        userId
+      });
+    }
+
+    // Check booking status
+    if (booking.status !== 'confirmed') {
+      return res.status(200).json({
+        status: 'RED',
+        message: 'Booking not confirmed',
+        action: 'DENY_ENTRY',
+        reason: `Booking status: ${booking.status}`,
+        userId,
+        userName: booking.userId?.name || 'Unknown',
+        bookingId: booking._id
+      });
+    }
+
+    // Check if ticket was already used for entry
+    if (booking.entryTime) {
+      return res.status(200).json({
+        status: 'BLUE',
+        message: 'Entry already recorded',
+        action: 'ALREADY_ENTERED',
+        reason: `Already entered at ${new Date(booking.entryTime).toLocaleTimeString()}`,
+        userId,
+        userName: booking.userId?.name || 'Unknown',
+        bookingId: booking._id,
+        firstEntryTime: booking.entryTime
+      });
+    }
+
+    // Mark entry time
+    booking.entryTime = new Date();
+    booking.facialEntryVerified = true;
+    await booking.save();
+
+    // Return GREEN - Entry allowed
+    return res.status(200).json({
+      status: 'GREEN',
+      message: 'Entry verified and recorded',
+      action: 'ALLOW_ENTRY',
+     // userId,
+      userName: booking.userId?.name || 'Unknown',
+    //  bookingId: booking._id,
+     // eventId: booking.eventId,
+      entryTime: booking.entryTime,
+   //   bookingDetails: {
+   //     bookingNumber: booking.bookingNumber,
+   //     ticketType: booking.ticketType,
+   //     eventName: booking.eventId?.name,
+   //     entryGate: booking.eventId?.gate || 'Main Gate'
+    //  }
+    });
+  } catch (error) {
+    console.error('Error verifying entry:', error);
+    return res.status(500).json({
+      status: 'fail',
+      message: 'Entry verification failed',
+      error: error.message
+    });
+  }
+};

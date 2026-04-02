@@ -238,6 +238,89 @@ class ClientFaceCropper {
       img.src = URL.createObjectURL(blob);
     });
   }
+
+  /**
+   * Compress image to target size (200-400 KB) with max 640px width
+   * @param {Blob} blob - Image blob
+   * @param {number} targetMinSize - Minimum target size in bytes (default 200KB)
+   * @param {number} targetMaxSize - Maximum target size in bytes (default 400KB)
+   * @param {number} maxWidth - Maximum width in pixels (default 640px)
+   * @returns {Promise<Blob>} Compressed blob meeting size constraints
+   */
+  async compressToTargetSize(
+    blob,
+    targetMinSize = 200 * 1024,
+    targetMaxSize = 400 * 1024,
+    maxWidth = 640
+  ) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = async () => {
+        try {
+          let { width, height } = img;
+
+          // Step 1: Resize to max 640px width
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+
+          this.canvas.width = width;
+          this.canvas.height = height;
+          this.ctx.drawImage(img, 0, 0, width, height);
+
+          // Step 2: Find optimal quality to fit 200-400 KB
+          let quality = 0.9;
+          let compressedBlob;
+          const maxAttempts = 10;
+          let attempt = 0;
+
+          do {
+            compressedBlob = await new Promise((blobResolve) => {
+              this.canvas.toBlob(
+                (blob) => blobResolve(blob),
+                'image/jpeg',
+                quality
+              );
+            });
+
+            if (
+              compressedBlob.size >= targetMinSize &&
+              compressedBlob.size <= targetMaxSize
+            ) {
+              // Perfect fit!
+              resolve(compressedBlob);
+              return;
+            }
+
+            if (compressedBlob.size > targetMaxSize) {
+              // Too large, reduce quality
+              quality -= 0.1;
+            } else if (
+              compressedBlob.size < targetMinSize &&
+              quality < 0.95
+            ) {
+              // Too small, increase quality slightly
+              quality += 0.05;
+            } else {
+              // Close enough
+              resolve(compressedBlob);
+              return;
+            }
+
+            attempt++;
+          } while (attempt < maxAttempts && quality > 0.1 && quality < 0.95);
+
+          // Return best attempt
+          resolve(compressedBlob);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(blob);
+    });
+  }
 }
 
 // Export for use

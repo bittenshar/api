@@ -1,4 +1,4 @@
-import { Booking } from '../models/Booking.js';
+import Booking from '../models/Booking.js';
 import { logger } from '../utils/logger.js';
 import mongoose from 'mongoose';
 
@@ -141,6 +141,104 @@ class BookingService {
       ticketStatus: 'already_used',
       color: 'blue',
     };
+  }
+
+  /**
+   * Record a check-in for a booking (supports multiple check-ins)
+   * Updates checkInCount and adds timestamp to checkIns array
+   * Transitions status from 'confirmed' to 'used' on first check-in
+   */
+  async recordCheckIn(bookingId, istTimestamp) {
+    const label = 'record_check_in';
+    logger.startTimer(label);
+
+    try {
+      const now = new Date();
+      
+      // Increment check-in count and push to checkIns array
+      const updatedBooking = await Booking.findByIdAndUpdate(
+        bookingId,
+        {
+          $set: {
+            usedAt: now // Set on first check-in
+          },
+          $inc: {
+            checkInCount: 1
+          },
+          $push: {
+            checkIns: {
+              timestamp: now,
+              timestampIST: istTimestamp,
+              checkInNumber: new Date() // Will be updated by the running count
+            }
+          }
+        },
+        { new: true }
+      ).lean();
+
+      // Update status to 'used' if it was 'confirmed'
+      if (updatedBooking && updatedBooking.status === 'confirmed') {
+        await Booking.findByIdAndUpdate(bookingId, {
+          $set: { status: 'used' }
+        });
+      }
+
+      const duration = logger.endTimer(label);
+      logger.debug('Check-in recorded', {
+        duration: `${duration}ms`,
+        bookingId: bookingId.toString(),
+        checkInCount: updatedBooking?.checkInCount
+      });
+
+      return updatedBooking;
+    } catch (error) {
+      logger.endTimer(label);
+      logger.error('Failed to record check-in', {
+        error: error.message,
+        bookingId: bookingId.toString()
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get smart ticket for user and event
+   * Returns only smart tickets with confirmed or used status
+   */
+  async getSmartTicket(userId, eventId) {
+    const label = 'get_smart_ticket';
+    logger.startTimer(label);
+
+    try {
+      if (!mongoose.Types.ObjectId.isValid(eventId)) {
+        return null;
+      }
+
+      const booking = await Booking.findOne({
+        userId,
+        eventId: new mongoose.Types.ObjectId(eventId),
+        tickettype: 'smart',
+        status: { $in: ['confirmed', 'used'] }
+      })
+        .lean()
+        .exec();
+
+      const duration = logger.endTimer(label);
+      logger.debug('Smart ticket query completed', {
+        duration: `${duration}ms`,
+        found: !!booking
+      });
+
+      return booking;
+    } catch (error) {
+      logger.endTimer(label);
+      logger.error('Smart ticket query failed', {
+        error: error.message,
+        userId,
+        eventId
+      });
+      throw error;
+    }
   }
 }
 

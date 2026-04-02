@@ -8,7 +8,7 @@
 import mongoose from 'mongoose';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { Booking } from '../models/Booking.js';
+import Booking from '../models/Booking.js';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 
