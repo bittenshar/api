@@ -29,6 +29,7 @@ router.post('/face-verify', upload.single('image'), verifyFace);
 // Direct verification endpoint (bypasses Rekognition, queries MongoDB directly)
 router.post('/face-verify-direct', verifyFaceDirect);
 
+
 // Face registration endpoint - index face to Rekognition collection
 router.post('/face-register', upload.single('image'), registerFace);
 
