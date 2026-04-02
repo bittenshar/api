@@ -10,9 +10,9 @@ import routes from '../routes/index.js';
 const app = express();
 
 // Increase payload limits for serverless
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.raw({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.raw({ limit: '10mb' }));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -63,24 +63,26 @@ async function connectMongoDB() {
       console.log('[MongoDB] Connecting...');
 
       await mongoose.connect(config.mongodb.uri, {
-        maxPoolSize: 10,
-        minPoolSize: 2,
-        socketTimeoutMS: 10000,
-        serverSelectionTimeoutMS: 5000,
+        maxPoolSize: 5,
+        minPoolSize: 1,
+        socketTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 3000,
+        connectTimeoutMS: 3000,
         retryWrites: true,
         family: 4, // Use IPv4, skip IPv6
       });
 
       console.log('[MongoDB] Connected successfully');
 
-      // Create indexes asynchronously (don't wait)
-      try {
-        await Booking.syncIndexes();
-        await FaceTable.syncIndexes();
-        console.log('[MongoDB] Indexes synced');
-      } catch (indexError) {
-        console.warn('[MongoDB] Index sync warning:', indexError.message);
-      }
+      // Sync indexes asynchronously without waiting
+      setImmediate(() => {
+        try {
+          Booking.syncIndexes().catch(err => console.warn('[MongoDB] Booking index sync:', err.message));
+          FaceTable.syncIndexes().catch(err => console.warn('[MongoDB] FaceTable index sync:', err.message));
+        } catch (err) {
+          console.warn('[MongoDB] Index sync error:', err.message);
+        }
+      });
 
       mongoConnected = true;
     } catch (error) {

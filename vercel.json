@@ -20,8 +20,7 @@
   ],
   "functions": {
     "api/handler.js": {
-      "memory": 1024,
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "env": {
