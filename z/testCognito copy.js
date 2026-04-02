@@ -16,7 +16,7 @@ credentials.get(err => {
 
   console.log("✅ Cognito credentials obtained");
 
-  const imageBytes = fs.readFileSync("bilal.jpeg");
+  const imageBytes = fs.readFileSync("daksh.jpg");
 
   rekognition.searchFacesByImage({
     CollectionId: "facial_collection",
