@@ -40,7 +40,7 @@ app.use((req, res, next) => {
 app.use(requestLogger);
 
 // Routes
-app.use('/', routes);
+app.use('/api', routes);
 
 // 404 handler
 app.use((req, res, next) => {
