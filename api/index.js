@@ -111,7 +111,6 @@ app.use(async (req, res, next) => {
   }
 });
 
-
 // Routes
 app.use('/api', routes);
 
