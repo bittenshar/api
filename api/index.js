@@ -112,7 +112,7 @@ app.use(async (req, res, next) => {
 });
 
 // Routes
-app.use('/', routes);
+app.use('/api', routes);
 
 // 404 handler
 app.use((req, res, next) => {

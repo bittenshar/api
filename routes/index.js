@@ -21,29 +21,27 @@ const upload = multer({
   },
 });
 
-router.post('/api/face-user-verify',  verifyEntryByUserId);
-
+router.post('/face-user-verify', verifyEntryByUserId);
 
 // Face verification endpoint (uses Rekognition with MongoDB fallback)
-router.post('/api/face-verify', upload.single('image'), verifyFace);
+router.post('/face-verify', upload.single('image'), verifyFace);
 
 // Direct verification endpoint (bypasses Rekognition, queries MongoDB directly)
-router.post('/api/face-verify-direct', verifyFaceDirect);
+router.post('/face-verify-direct', verifyFaceDirect);
 
 // Face registration endpoint - index face to Rekognition collection
-router.post('/api/face-register', upload.single('image'), registerFace);
+router.post('/face-register', upload.single('image'), registerFace);
 
 // Face cropping endpoint - crop detected face from image
-router.post('/api/face-crop', upload.single('image'), cropFace);
+router.post('/face-crop', upload.single('image'), cropFace);
 
 // Multiple face cropping endpoint - crop all detected faces
-router.post('/api/face-crop-multiple', upload.single('image'), cropMultipleFaces);
+router.post('/face-crop-multiple', upload.single('image'), cropMultipleFaces);
 
 // Health check endpoint
 router.get('/health', healthCheck);
 
-
 // Entry verification endpoint - check in users to events
-router.post('/api/booking/entry/verify', verifyEntry);
+router.post('/booking/entry/verify', verifyEntry);
 
 export default router;
