@@ -8,6 +8,7 @@ import { connectMongoDB } from './utils/database.js';
 import { errorHandler, AppError, headerErrorHandler } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/requestLogger.js';
 import { sanitizeHeaders } from './middlewares/sanitizeHeaders.js';
+import { headerValidator } from './middlewares/headerValidator.js';
 import routes from './routes/index.js';
 
 const app = express();
@@ -15,6 +16,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Header sanitization MUST be first
 app.use(sanitizeHeaders);
+
+// Header validation (logs issues but allows request to proceed unless critical)
+app.use(headerValidator);
 
 // Enable response compression (gzip) - CRITICAL for performance
 app.use(compression());
@@ -64,13 +68,34 @@ const startServer = async () => {
     // Connect to MongoDB
     await connectMongoDB();
 
-    // Start express server
-    app.listen(config.server.port, () => {
+    // Start express server and capture HTTP server instance
+    const server = app.listen(config.server.port, () => {
       logger.info(`Server started`, {
         port: config.server.port,
         environment: config.server.nodeEnv,
       });
     });
+
+    // Handle HTTP parsing errors (e.g., invalid headers)
+    server.on('clientError', (err, socket) => {
+      logger.error('HTTP Client Error', {
+        message: err.message,
+        code: err.code,
+      });
+
+      // Only send a response if the socket is still writable
+      if (socket.writable) {
+        // Don't send 400 for header errors, just close connection
+        if (err.code === 'HPE_INVALID_HEADER_TOKEN' || 
+            err.message.includes('Invalid character in header')) {
+          socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        } else {
+          socket.end('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+        }
+      }
+    });
+
+    return server;
   } catch (error) {
     logger.error('Failed to start server', {
       error: error.message,

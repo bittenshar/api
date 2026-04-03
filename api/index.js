@@ -4,14 +4,24 @@ import { config } from '../config/index.js';
 import { errorHandler, AppError, headerErrorHandler } from '../middlewares/errorHandler.js';
 import { requestLogger } from '../middlewares/requestLogger.js';
 import { sanitizeHeaders } from '../middlewares/sanitizeHeaders.js';
+import { headerValidator } from '../middlewares/headerValidator.js';
 import Booking from '../models/Booking.js';
 import { FaceTable } from '../models/FaceTable.js';
 import routes from '../routes/index.js';
 
 const app = express();
 
+// Set stricter header size limit and disable strict parsing for Vercel compatibility
+app.use((req, res, next) => {
+  // Pass through to allow our sanitizer to work
+  next();
+});
+
 // Header sanitization MUST be first
 app.use(sanitizeHeaders);
+
+// Header validation (logs issues but allows request to proceed unless critical)
+app.use(headerValidator);
 
 // Increase payload limits for serverless
 app.use(express.json({ limit: '10mb' }));

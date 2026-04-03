@@ -31,6 +31,53 @@ export const config = {
   },
 };
 
+// Validate and report on environment variables
+const validateEnvVars = () => {
+  const envVarsToCheck = [
+    'AWS_REGION',
+    'AWS_ACCESS_KEY_ID', 
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_REKOGNITION_COLLECTION_ID',
+    'MONGO_URI',
+  ];
+
+  const issues = [];
+  
+  envVarsToCheck.forEach((varName) => {
+    const rawValue = process.env[varName];
+    if (rawValue) {
+      // Check for trailing newlines or spaces
+      if (rawValue !== rawValue.trim()) {
+        issues.push({
+          variable: varName,
+          issue: 'Trailing whitespace/newlines detected',
+          length: rawValue.length,
+          trimmedLength: rawValue.trim().length,
+        });
+      }
+      
+      // Check for control characters
+      if (/[\r\n\0\x00-\x1f]/.test(rawValue)) {
+        issues.push({
+          variable: varName,
+          issue: 'Contains control characters (newlines, null bytes, etc)',
+        });
+      }
+    }
+  });
+
+  if (issues.length > 0) {
+    console.warn('⚠️  Environment Variable Issues Detected:');
+    issues.forEach((issue) => {
+      console.warn(`  - ${issue.variable}: ${issue.issue}`);
+      if (issue.length) console.warn(`    Length: ${issue.length} → ${issue.trimmedLength}`);
+    });
+    console.warn('\n💡 Fix: Check your .env file for trailing newlines or spaces');
+  }
+
+  return issues;
+};
+
 // Validate critical env vars on startup
 const requiredEnvVars = [
   'AWS_REGION',
@@ -44,6 +91,9 @@ const missingVars = requiredEnvVars.filter((v) => {
   const val = process.env[v];
   return !val || !sanitize(val);
 });
+
+// Run validation
+validateEnvVars();
 
 if (missingVars.length > 0) {
   console.error('Missing required environment variables:', missingVars.join(', '));
