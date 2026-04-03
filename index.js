@@ -5,12 +5,16 @@ import { fileURLToPath } from 'url';
 import { config } from './config/index.js';
 import { logger } from './utils/logger.js';
 import { connectMongoDB } from './utils/database.js';
-import { errorHandler, AppError } from './middlewares/errorHandler.js';
+import { errorHandler, AppError, headerErrorHandler } from './middlewares/errorHandler.js';
 import { requestLogger } from './middlewares/requestLogger.js';
+import { sanitizeHeaders } from './middlewares/sanitizeHeaders.js';
 import routes from './routes/index.js';
 
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Header sanitization MUST be first
+app.use(sanitizeHeaders);
 
 // Enable response compression (gzip) - CRITICAL for performance
 app.use(compression());
@@ -27,9 +31,10 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header(
     'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key'
   );
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Max-Age', '86400');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -46,6 +51,9 @@ app.use('/api', routes);
 app.use((req, res, next) => {
   throw new AppError(`Route not found: ${req.method} ${req.path}`, 404);
 });
+
+// Header error handling middleware (must be before general error handler)
+app.use(headerErrorHandler);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

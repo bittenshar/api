@@ -1,13 +1,17 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { config } from '../config/index.js';
-import { errorHandler, AppError } from '../middlewares/errorHandler.js';
+import { errorHandler, AppError, headerErrorHandler } from '../middlewares/errorHandler.js';
 import { requestLogger } from '../middlewares/requestLogger.js';
+import { sanitizeHeaders } from '../middlewares/sanitizeHeaders.js';
 import Booking from '../models/Booking.js';
 import { FaceTable } from '../models/FaceTable.js';
 import routes from '../routes/index.js';
 
 const app = express();
+
+// Header sanitization MUST be first
+app.use(sanitizeHeaders);
 
 // Increase payload limits for serverless
 app.use(express.json({ limit: '10mb' }));
@@ -19,9 +23,10 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header(
     'Access-Control-Allow-Headers',
-    'Origin, X-Requested-With, Content-Type, Accept'
+    'Origin, X-Requested-With, Content-Type, Accept, Authorization, x-api-key'
   );
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Max-Age', '86400');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -120,6 +125,9 @@ app.use('/api', routes);
 app.use((req, res, next) => {
   next(new AppError(`Route not found: ${req.method} ${req.path}`, 404));
 });
+
+// Header error handling middleware (must be before general error handler)
+app.use(headerErrorHandler);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
