@@ -65,7 +65,6 @@ class BookingService {
       })
         .select('status isUsed quantity seatType totalPrice createdAt') // Only needed fields
         .lean()
-        .hint({ userId: 1, eventId: 1 }) // Force index usage
         .exec();
 
       const duration = logger.endTimer(label);

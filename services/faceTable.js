@@ -48,7 +48,6 @@ class FaceTableService {
       const user = await FaceTable.findOne({ userId })
         .select('userId fullName rekognitionId status') // Only needed fields
         .lean()
-        .hint({ userId: 1 }) // Force index usage
         .exec();
 
       const duration = logger.endTimer(label);

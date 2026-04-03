@@ -6,11 +6,12 @@ import { faceCropper } from '../utils/faceCropper.js';
 import { AppError, asyncHandler } from '../middlewares/errorHandler.js';
 import { logger } from '../utils/logger.js';
 import Booking from '../models/Booking.js';
-
+import { verifyEntryLogic } from '../services/entryService.js';
 const overallTimer = 'overall_request';
-
+/*
 export const verifyFace = asyncHandler(async (req, res) => {
   logger.startTimer(overallTimer);
+  let entryResult = null;
 
   try {
     const { eventId } = req.body;
@@ -53,6 +54,11 @@ export const verifyFace = asyncHandler(async (req, res) => {
         similarity = 0; // No similarity match from Rekognition
         logger.info('User found via MongoDB fallback', { userId });
       }
+      
+
+    if (userId && eventId) {
+    entryResult = await verifyEntryLogic(userId, eventId);
+}
     } else {
       // 5. Query MongoDB face-table for user info
       user = await faceTableService.findUserByUserId(userId);
@@ -79,6 +85,10 @@ export const verifyFace = asyncHandler(async (req, res) => {
         timestamp: new Date().toISOString(),
       });
     }
+     if (userId && eventId) {
+      // Use the optimized fast booking query
+      ticketInfo = await bookingService.getBookingWithStatus(userId, eventId);
+    }
 
     // 7. Determine user status
     const { found, status, color } = faceTableService.determineUserStatus(user);
@@ -91,10 +101,7 @@ export const verifyFace = asyncHandler(async (req, res) => {
       ticketDetails: null
     };
 
-    if (userId && eventId) {
-      // Use the optimized fast booking query
-      ticketInfo = await bookingService.getBookingWithStatus(userId, eventId);
-    }
+   
 
     const duration = logger.endTimer(overallTimer);
 
@@ -111,18 +118,23 @@ export const verifyFace = asyncHandler(async (req, res) => {
 
     // 9. Return success response with all details
     res.status(200).json({
-      success: true,
-      userId,
-      fullName: user?.fullName || null,
-      status,
-      color,
-      similarity,
-      rekognitionId: user?.rekognitionId || null,
-      hasTicket: ticketInfo.hasTicket,
-      ticketStatus: ticketInfo.ticketStatus,
-      ticketDetails: ticketInfo.ticketDetails,
-      timestamp: new Date().toISOString(),
-    });
+        success: true,
+        userId,
+        fullName: user?.fullName || null,
+        similarity,
+
+        // 🎯 ENTRY RESULT
+        entryStatus: entryResult?.status,
+        entryAction: entryResult?.action,
+        entryTime: entryResult?.entryTime || null,
+        userName: entryResult?.userName || null,
+
+        // 🎯 OLD DATA (optional)
+        hasTicket: ticketInfo?.hasTicket,
+        ticketStatus: ticketInfo?.ticketStatus,
+
+        timestamp: new Date().toISOString(),
+      });
   } catch (error) {
     logger.endTimer(overallTimer);
 
@@ -130,7 +142,386 @@ export const verifyFace = asyncHandler(async (req, res) => {
     throw error;
   }
 });
+*/
+/* correxct ha short ma detils */
+export const verifyFace = asyncHandler(async (req, res) => {
+  logger.startTimer(overallTimer);
+  let entryResult = null;
 
+  try {
+    const { eventId } = req.body;
+    const image = req.file;
+
+    console.log('========== VERIFY FACE START ==========');
+    console.log('Request body:', { eventId });
+    console.log('Image file:', image ? {
+      originalname: image.originalname,
+      size: image.size,
+      mimetype: image.mimetype
+    } : 'No image');
+    console.log('EventId type:', typeof eventId, 'value:', eventId);
+
+    // 1. Validate request
+    const validation = validateRequest(image, eventId);
+    if (!validation.valid) {
+      throw new AppError(validation.errors.join(', '), 400);
+    }
+
+    // Validate image buffer
+    const imageValidation = validateImage(image.buffer);
+    if (!imageValidation.valid) {
+      throw new AppError(imageValidation.error, 400);
+    }
+
+    // 2. Search faces in AWS Rekognition
+    console.log('Searching face in AWS Rekognition...');
+    const rekognitionResponse = await rekognitionService.searchFacesByImage(
+      image.buffer
+    );
+    console.log('Rekognition response:', JSON.stringify(rekognitionResponse, null, 2));
+
+    // 3. Extract userId and similarity from Rekognition response
+    let { userId, similarity } =
+      rekognitionService.extractUserIdAndSimilarity(
+        rekognitionResponse.FaceMatches
+      );
+    
+    console.log('Extracted from Rekognition:', { userId, similarity });
+    console.log('UserId type:', typeof userId, 'length:', userId?.length);
+
+    // 4. Fallback: If no face found in Rekognition, search MongoDB for any active user
+    let user = null;
+    if (!userId) {
+      console.log('No Rekognition match found, attempting MongoDB fallback');
+      logger.warn('No Rekognition match found, attempting MongoDB fallback');
+      
+      user = await faceTableService.findFirstActiveUser();
+      console.log('Fallback user found:', user ? { userId: user.userId, fullName: user.fullName } : 'No user found');
+      
+      if (user) {
+        userId = user.userId;
+        similarity = 0;
+        console.log('Using fallback userId:', userId);
+        logger.info('User found via MongoDB fallback', { userId });
+      }
+    } else {
+      // 5. Query MongoDB face-table for user info
+      console.log('Querying face-table for userId:', userId);
+      user = await faceTableService.findUserByUserId(userId);
+      console.log('Face-table user:', user ? { userId: user.userId, fullName: user.fullName } : 'User not found in face-table');
+    }
+
+    // 6. If no user found, return early with red status
+    if (!userId) {
+      console.log('No userId found from any source');
+      const duration = logger.endTimer(overallTimer);
+
+      logger.logFaceVerification({
+        success: true,
+        matched: false,
+        duration: `${duration}ms`,
+        color: 'red',
+      });
+
+      return res.status(200).json({
+        success: true,
+        userId: null,
+        fullName: null,
+        status: 'not_found',
+        color: 'red',
+        similarity: 0,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // ✅ 7. Call verifyEntryLogic (internal function, not API) to get booking/entry details
+    console.log('Calling verifyEntryLogic with:', { userId, eventId });
+    console.log('UserId type before verifyEntryLogic:', typeof userId);
+    console.log('EventId type before verifyEntryLogic:', typeof eventId);
+    
+    if (userId && eventId) {
+      entryResult = await verifyEntryLogic(userId, eventId);
+      console.log('verifyEntryLogic result:', JSON.stringify(entryResult, null, 2));
+    } else {
+      console.log('Skipping verifyEntryLogic - missing userId or eventId');
+    }
+
+    const duration = logger.endTimer(overallTimer);
+
+    console.log('Final response data:', {
+      userId,
+      fullName: user?.fullName || entryResult?.userName || null,
+      similarity,
+      status: entryResult?.status,
+      action: entryResult?.action,
+      entryTime: entryResult?.entryTime
+    });
+
+    logger.logFaceVerification({
+      success: true,
+      matched: true,
+      userId,
+      status: entryResult?.status || 'unknown',
+      color: entryResult?.status === 'GREEN' ? 'green' : 
+             entryResult?.status === 'RED' ? 'red' :
+             entryResult?.status === 'BLUE' ? 'blue' : 'black',
+      duration: `${duration}ms`,
+      similarity,
+      hasTicket: !!entryResult?.booking,
+    });
+
+    // 8. Return success response with booking/entry details
+    res.status(200).json({
+      success: true,
+      userId,
+      fullName: user?.fullName || entryResult?.userName || null,
+      similarity,
+      
+      // Booking & Entry details from verifyEntryLogic
+      status: entryResult?.status,
+      action: entryResult?.action,
+      message: entryResult?.message,
+      reason: entryResult?.reason,
+      entryTime: entryResult?.entryTime || null,
+      userName: entryResult?.userName || null,
+      
+      timestamp: new Date().toISOString(),
+    });
+    
+    console.log('========== VERIFY FACE END ==========');
+    
+  } catch (error) {
+    console.error('========== VERIFY FACE ERROR ==========');
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    logger.endTimer(overallTimer);
+    throw error;
+  }
+});
+
+/* long details
+export const verifyFace = asyncHandler(async (req, res) => {
+  logger.startTimer(overallTimer);
+  let entryResult = null;
+  let user = null;
+
+  try {
+    const { eventId } = req.body;
+    const image = req.file;
+
+    console.log('========== VERIFY FACE START ==========');
+    console.log('Request body:', { eventId });
+    console.log('Image file:', image ? {
+      originalname: image.originalname,
+      size: image.size,
+      mimetype: image.mimetype
+    } : 'No image');
+
+    // 1. Validate request
+    const validation = validateRequest(image, eventId);
+    if (!validation.valid) {
+      throw new AppError(validation.errors.join(', '), 400);
+    }
+
+    // 2. Validate image buffer
+    const imageValidation = validateImage(image.buffer);
+    if (!imageValidation.valid) {
+      throw new AppError(imageValidation.error, 400);
+    }
+
+    // 3. Search faces in AWS Rekognition
+    console.log('Searching face in AWS Rekognition...');
+    const rekognitionResponse = await rekognitionService.searchFacesByImage(
+      image.buffer
+    );
+
+    // 4. Extract userId and similarity from Rekognition response
+    let { userId, similarity } =
+      rekognitionService.extractUserIdAndSimilarity(
+        rekognitionResponse.FaceMatches
+      );
+
+    console.log('Extracted from Rekognition:', { userId, similarity });
+
+    // 5. Fallback: If no face found in Rekognition, search MongoDB for any active user
+    if (!userId) {
+      console.log('No Rekognition match found, attempting MongoDB fallback');
+      logger.warn('No Rekognition match found, attempting MongoDB fallback');
+      
+      user = await faceTableService.findFirstActiveUser();
+      console.log('Fallback user found:', user ? { userId: user.userId, fullName: user.fullName } : 'No user found');
+      
+      if (user) {
+        userId = user.userId;
+        similarity = 0;
+        console.log('Using fallback userId:', userId);
+        logger.info('User found via MongoDB fallback', { userId });
+      }
+    } else {
+      // 6. Query MongoDB face-table for user info
+      console.log('Querying face-table for userId:', userId);
+      user = await faceTableService.findUserByUserId(userId);
+      console.log('Face-table user:', user ? { userId: user.userId, fullName: user.fullName } : 'User not found in face-table');
+    }
+
+    // 7. If no user found, return early with red status
+    if (!userId) {
+      console.log('No userId found from any source');
+      const duration = logger.endTimer(overallTimer);
+
+      logger.logFaceVerification({
+        success: true,
+        matched: false,
+        duration: `${duration}ms`,
+        color: 'red',
+      });
+
+      return res.status(200).json({
+        success: true,
+        userId: null,
+        fullName: null,
+        similarity: 0,
+        status: 'not_found',
+        action: 'DENY_ENTRY',
+        message: 'No user found',
+        reason: 'Face not recognized and no fallback user found',
+        entryTime: null,
+        entryTimeIST: null,
+        bookingId: null,
+        bookingStatus: null,
+        checkInCount: 0,
+        ticketInfo: {
+          hasTicket: false,
+          status: 'NO_USER'
+        },
+        currentCheckIn: null,
+        recentCheckIns: [],
+        summary: {
+          totalEntries: 0,
+          message: 'User not found'
+        },
+        timestamp: new Date().toISOString(),
+        timestampIST: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      });
+    }
+
+    // 8. Call verifyEntryLogic to get booking/entry details
+    console.log('Calling verifyEntryLogic with:', { userId, eventId });
+    if (userId && eventId) {
+      entryResult = await verifyEntryLogic(userId, eventId);
+      console.log('verifyEntryLogic result:', JSON.stringify(entryResult, null, 2));
+    } else {
+      console.log('Skipping verifyEntryLogic - missing userId or eventId');
+    }
+
+    const duration = logger.endTimer(overallTimer);
+
+    console.log('Final response data:', {
+      userId,
+      fullName: entryResult?.userName || user?.fullName || null,
+      similarity,
+      status: entryResult?.status,
+      action: entryResult?.action,
+      checkInCount: entryResult?.checkInCount
+    });
+
+    logger.logFaceVerification({
+      success: true,
+      matched: true,
+      userId,
+      userName: entryResult?.userName || user?.fullName || null,
+      status: entryResult?.status || 'unknown',
+      color: entryResult?.status === 'GREEN' ? 'green' : 
+             entryResult?.status === 'RED' ? 'red' :
+             entryResult?.status === 'BLUE' ? 'blue' : 'black',
+      duration: `${duration}ms`,
+      similarity: Math.round(similarity * 100) / 100,
+      checkInCount: entryResult?.checkInCount || 0,
+    });
+
+    // 9. Return COMPLETE response with all booking details
+    res.status(200).json({
+      success: true,
+      
+      // User details
+      userId,
+      fullName: entryResult?.userName || user?.fullName || null,
+      similarity: Math.round(similarity * 100) / 100,
+      
+      // Entry status
+      status: entryResult?.status || 'unknown',
+      action: entryResult?.action || 'DENY_ENTRY',
+      message: entryResult?.message || 'No booking information',
+      reason: entryResult?.reason || null,
+      
+      // Entry details
+      entryTime: entryResult?.entryTime || null,
+      entryTimeIST: entryResult?.entryTime ? 
+        new Date(entryResult.entryTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 
+        null,
+      
+      // Booking details
+      bookingId: entryResult?.bookingId || null,
+      bookingStatus: entryResult?.bookingStatus || null,
+      checkInCount: entryResult?.checkInCount || 0,
+      
+      // Complete ticket information
+      ticketInfo: entryResult?.ticketInfo || {
+        hasTicket: false,
+        status: 'NO_TICKET',
+        bookingId: null,
+        bookingStatus: null,
+        message: 'No booking found for this user and event'
+      },
+      
+      // Current check-in details (for GREEN status)
+      currentCheckIn: entryResult?.currentCheckIn || null,
+      
+      // Recent check-ins (last 5)
+      recentCheckIns: entryResult?.recentCheckIns || [],
+      
+      // Summary statistics
+      summary: entryResult?.summary || {
+        totalEntries: entryResult?.checkInCount || 0,
+        firstEntry: entryResult?.entryTime || null,
+        lastEntry: entryResult?.entryTime || null,
+        faceVerified: !!entryResult?.ticketInfo?.faceVerified,
+        message: entryResult?.status === 'BLUE' ? 'Already checked in' : 
+                 entryResult?.status === 'GREEN' ? 'New check-in recorded' :
+                 entryResult?.status === 'RED' ? 'Entry denied - booking issue' :
+                 'User verified but no booking'
+      },
+      
+      timestamp: new Date().toISOString(),
+      timestampIST: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    });
+    
+    console.log('========== VERIFY FACE END ==========');
+    
+  } catch (error) {
+    console.error('========== VERIFY FACE ERROR ==========');
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    logger.endTimer(overallTimer);
+    
+    // Return error response
+    res.status(error.statusCode || 500).json({
+      success: false,
+      message: error.message || 'Face verification failed',
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString(),
+      timestampIST: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    });
+  }
+});
+*/
 /**
  * Direct verification: Lookup user directly in MongoDB by userId
  * Useful when Rekognition index is not available
@@ -496,7 +887,7 @@ export const verifyEntryByUserId = async (req, res, next) => {
     const booking = await Booking.findOne({
       userId: userId,
       eventId: eventId
-    }).populate('userId').populate('eventId');
+    }).populate('userId', 'name email phone').populate('eventId', 'name date location');
 
     if (!booking) {
       return res.status(200).json({
@@ -505,6 +896,36 @@ export const verifyEntryByUserId = async (req, res, next) => {
         action: 'DENY_ENTRY',
         reason: 'User has no booking for this event',
         userId
+      });
+    }
+
+    // Check for 'used' status (already completed)
+    if (booking.status === 'used') {
+      return res.status(200).json({
+        status: 'BLUE',
+        message: `Already checked in ${booking.checkInCount || 1} time(s)`,
+        action: 'ALREADY_ENTERED',
+        reason: 'Ticket already used',
+        userId,
+        userName: booking.userId?.name || 'Unknown',
+        bookingId: booking._id,
+        checkInCount: booking.checkInCount || 1,
+        entryTime: booking.entryTime
+      });
+    }
+
+    // Check if ticket was already used for entry
+    if (booking.entryTime) {
+      return res.status(200).json({
+        status: 'BLUE',
+        message: `Already checked in ${booking.checkInCount || 1} time(s)`,
+        action: 'ALREADY_ENTERED',
+        reason: `Already entered at ${new Date(booking.entryTime).toLocaleTimeString()}`,
+        userId,
+        userName: booking.userId?.name || 'Unknown',
+        bookingId: booking._id,
+        checkInCount: booking.checkInCount || 1,
+        entryTime: booking.entryTime
       });
     }
 
@@ -521,41 +942,40 @@ export const verifyEntryByUserId = async (req, res, next) => {
       });
     }
 
-    // Check if ticket was already used for entry
-    if (booking.entryTime) {
-      return res.status(200).json({
-        status: 'BLUE',
-        message: 'Entry already recorded',
-        action: 'ALREADY_ENTERED',
-        reason: `Already entered at ${new Date(booking.entryTime).toLocaleTimeString()}`,
-        userId,
-        userName: booking.userId?.name || 'Unknown',
-        bookingId: booking._id,
-        firstEntryTime: booking.entryTime
-      });
-    }
-
-    // Mark entry time
+    // Record new entry with check-in tracking
+    const newCheckInNumber = (booking.checkInCount || 0) + 1;
+    
     booking.entryTime = new Date();
     booking.facialEntryVerified = true;
+    booking.faceVerificationTime = new Date();
+    booking.checkInCount = newCheckInNumber;
+    
+    // Initialize checkIns array if it doesn't exist
+    if (!booking.checkIns) {
+      booking.checkIns = [];
+    }
+    
+    // Add new check-in record
+    booking.checkIns.push({
+      timestamp: new Date(),
+      timestampIST: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      checkInNumber: newCheckInNumber,
+      method: 'face_verification'
+    });
+    
     await booking.save();
 
     // Return GREEN - Entry allowed
     return res.status(200).json({
       status: 'GREEN',
-      message: 'Entry verified and recorded',
+      message: `✅ Entry verified! Check-in #${newCheckInNumber} successful`,
       action: 'ALLOW_ENTRY',
-     // userId,
+      userId,
       userName: booking.userId?.name || 'Unknown',
-    //  bookingId: booking._id,
-     // eventId: booking.eventId,
+      bookingId: booking._id,
       entryTime: booking.entryTime,
-   //   bookingDetails: {
-   //     bookingNumber: booking.bookingNumber,
-   //     ticketType: booking.ticketType,
-   //     eventName: booking.eventId?.name,
-   //     entryGate: booking.eventId?.gate || 'Main Gate'
-    //  }
+      checkInCount: newCheckInNumber,
+      checkInTime: booking.entryTime
     });
   } catch (error) {
     console.error('Error verifying entry:', error);

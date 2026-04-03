@@ -190,7 +190,8 @@ export const verifyEntry = asyncHandler(async (req, res) => {
 
     // 6. Build success response
     return res.status(200).json({
-      status: 'GREENn',
+      status: 'GREENn]',
+      userId: userId,
       bookingId: booking._id,
       userName: user?.name || 'Unknown',
       eventName: event.eventName,

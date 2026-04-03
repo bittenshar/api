@@ -233,6 +233,8 @@ bookingSchema.index({ userId: 1, eventId: 1 ,
   status: 1,
   usedAt: 1
 });
+// Fast lookup index for booking status checks (face verification)
+bookingSchema.index({ userId: 1, eventId: 1 });
 bookingSchema.index({ bookedAt: -1 });
 bookingSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
 bookingSchema.index({ razorpayOrderId: 1 });
