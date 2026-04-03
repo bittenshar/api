@@ -11,23 +11,19 @@ class AppError extends Error {
 // Catch header parsing errors from Vercel's strict parser
 export const headerErrorHandler = (err, req, res, next) => {
   // Check if it's a header-related error
-  if (err.message && err.message.includes('Invalid character in header')) {
-    logger.error('Header parsing error (Vercel strict mode)', {
+  if (err.message && (err.message.includes('Invalid character in header') || 
+                       err.code === 'HPE_INVALID_HEADER_TOKEN')) {
+    logger.warn('Header parsing issue detected', {
       message: err.message,
-      statusCode: 400,
+      code: err.code,
       path: req.path,
     });
 
-    return res.status(400).json({
-      success: false,
-      error: {
-        message: 'Invalid header format. Headers must not contain special characters.',
-        statusCode: 400,
-        timestamp: new Date().toISOString(),
-      },
-    });
+    // Log but don't reject - let sanitizeHeaders handle it
+    return next();
   }
 
+  // If it's a different error, pass it along
   next(err);
 };
 

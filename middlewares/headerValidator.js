@@ -1,6 +1,7 @@
 /**
  * Strict header validation middleware
  * Logs details about headers that might cause issues
+ * Does NOT reject requests - just provides diagnostics
  */
 export const headerValidator = (req, res, next) => {
   const invalidCharRegex = /[\r\n\0\x00-\x1f]/;
@@ -20,24 +21,19 @@ export const headerValidator = (req, res, next) => {
   }
 
   if (headersWithIssues.length > 0) {
-    console.warn('⚠️  Headers with suspicious characters detected:', headersWithIssues);
+    console.warn('⚠️  Headers with suspicious characters detected (after sanitization):', headersWithIssues);
     
     // For Authorization header specifically, log more details
     if (req.headers.authorization && invalidCharRegex.test(req.headers.authorization)) {
-      console.warn('🔴 CRITICAL: Authorization header contains invalid characters');
-      console.warn('Value preview:', JSON.stringify(req.headers.authorization));
+      console.warn('🔴 WARNING: Authorization header contains invalid characters (should have been sanitized)');
+      console.warn('Value length:', req.headers.authorization.length);
       
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: 'Authorization header contains invalid characters (newlines, null bytes, etc). Ensure token is clean.',
-          statusCode: 400,
-          tip: 'Check your .env file for trailing newlines. Environment variables should be trimmed.',
-          timestamp: new Date().toISOString(),
-        },
-      });
+      // Don't reject - let it through but log for debugging
+      console.warn('💡 Tip: Ensure your Authorization token is properly formatted without newlines/spaces');
     }
   }
 
+  // Always proceed - don't reject
   next();
 };
+

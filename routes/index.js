@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { verifyFace, verifyFaceDirect, registerFace, cropFace, cropMultipleFaces, healthCheck, verifyEntryByUserId } from '../controllers/faceVerification.js';
 import { verifyEntry } from '../controllers/entryVerification.js';
+import { debugHeaders } from '../controllers/debugController.js';
 
 const router = express.Router();
 
@@ -41,6 +42,9 @@ router.post('/face-crop-multiple', upload.single('image'), cropMultipleFaces);
 
 // Health check endpoint
 router.get('/health', healthCheck);
+
+// Debug endpoint - inspect headers being received
+router.get('/debug/headers', debugHeaders);
 
 // Entry verification endpoint - check in users to events
 router.post('/booking/entry/verify', verifyEntry);
