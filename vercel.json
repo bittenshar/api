@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/handler.js"
+    },
+    {
+      "src": "/health",
+      "dest": "api/handler.js"
+    },
+    {
+      "src": "/(.+\\.(?:html|js|css|json|png|jpg|jpeg|gif|svg|ico|webp))$",
+      "dest": "/public/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "api/handler.js"
+    }
+  ],
+  "functions": {
+    "api/handler.js": {
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ]
+}

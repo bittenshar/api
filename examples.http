@@ -1,0 +1,68 @@
+# Face Verification API - Example Requests
+
+## Health Check
+GET http://localhost:3000/health
+
+###
+
+## Face Verification with Valid Booking
+POST http://localhost:3000/api/face-verify
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="face.jpg"
+Content-Type: image/jpeg
+
+< ./test-image.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="eventId"
+
+66148a2c1b2c3d4e5f6g7h8i
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+## Face Verification - Missing Image (Error Case)
+POST http://localhost:3000/api/face-verify
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="eventId"
+
+66148a2c1b2c3d4e5f6g7h8i
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+## Face Verification - Invalid EventId (Error Case)
+POST http://localhost:3000/api/face-verify
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="face.jpg"
+Content-Type: image/jpeg
+
+< ./test-image.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="eventId"
+
+invalid-id
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+###
+
+# Using cURL
+
+## Health Check
+# curl http://localhost:3000/health
+
+## Face Verification
+# curl -X POST http://localhost:3000/api/face-verify \
+#   -F "image=@test-image.jpg" \
+#   -F "eventId=66148a2c1b2c3d4e5f6g7h8i"
+
+## Performance Test with Apache Bench
+# ab -n 100 -c 10 -p data.json -T application/json http://localhost:3000/api/face-verify
+
+## Performance Test with wrk
+# wrk -t4 -c100 -d30s -s script.lua http://localhost:3000/api/face-verify

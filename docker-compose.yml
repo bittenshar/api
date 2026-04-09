@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  face-verification:
+    build: .
+    container_name: face-verification-service
+    ports:
+      - '3000:3000'
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REKOGNITION_COLLECTION_ID=${AWS_REKOGNITION_COLLECTION_ID}
+      - MONGO_URI=${MONGO_URI}
+      - LOG_LEVEL=info
+    restart: always
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - face-verification-network
+    volumes:
+      - ./logs:/app/logs
+
+  # Optional: Redis for caching (future enhancement)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: face-verification-redis
+  #   ports:
+  #     - '6379:6379'
+  #   restart: always
+  #   networks:
+  #     - face-verification-network
+
+networks:
+  face-verification-network:
+    driver: bridge
+
+volumes:
+  logs:
+    driver: local

@@ -1,0 +1,52 @@
+import express from 'express';
+import multer from 'multer';
+import { verifyFace, verifyFaceDirect, registerFace, cropFace, cropMultipleFaces, healthCheck, verifyEntryByUserId } from '../controllers/faceVerification.js';
+import { verifyEntry } from '../controllers/entryVerification.js';
+import { debugHeaders } from '../controllers/debugController.js';
+
+const router = express.Router();
+
+// Configure multer for memory storage (no disk I/O)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Validate image type
+    if (!file.mimetype.startsWith('image/')) {
+      cb(new Error('Only image files are allowed'));
+    } else {
+      cb(null, true);
+    }
+  },
+});
+
+router.post('/face-user-verify', verifyEntryByUserId);
+
+// Face verification endpoint (uses Rekognition with MongoDB fallback)
+router.post('/face-verify/final', upload.single('image'), verifyFace);
+
+// Direct verification endpoint (bypasses Rekognition, queries MongoDB directly)
+router.post('/face-verify-direct', verifyFaceDirect);
+
+
+// Face registration endpoint - index face to Rekognition collection
+router.post('/face-register', upload.single('image'), registerFace);
+
+// Face cropping endpoint - crop detected face from image
+router.post('/face-crop', upload.single('image'), cropFace);
+
+// Multiple face cropping endpoint - crop all detected faces
+router.post('/face-crop-multiple', upload.single('image'), cropMultipleFaces);
+
+// Health check endpoint
+router.get('/health', healthCheck);
+
+// Debug endpoint - inspect headers being received
+router.get('/debug/headers', debugHeaders);
+
+// Entry verification endpoint - check in users to events
+router.post('/booking/entry/verify', verifyEntry);
+
+export default router;
